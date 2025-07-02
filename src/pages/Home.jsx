@@ -1,555 +1,410 @@
-import React, { createContext, useContext, useReducer, useEffect, useState } from 'react';
-import { Trash2, Edit, Plus, User, Phone, Mail, MapPin, ArrowLeft, X } from 'lucide-react';
-
-
-const ContactContext = createContext();
-
-
-const contactReducer = (state, action) => {
-  switch (action.type) {
-    case 'SET_CONTACTS':
-      return { ...state, contacts: action.payload, loading: false };
-    case 'ADD_CONTACT':
-      return { ...state, contacts: [...state.contacts, action.payload] };
-    case 'UPDATE_CONTACT':
-      return {
-        ...state,
-        contacts: state.contacts.map(contact =>
-          contact.id === action.payload.id ? action.payload : contact
-        )
-      };
-    case 'DELETE_CONTACT':
-      return {
-        ...state,
-        contacts: state.contacts.filter(contact => contact.id !== action.payload)
-      };
-    case 'SET_LOADING':
-      return { ...state, loading: action.payload };
-    case 'SET_ERROR':
-      return { ...state, error: action.payload, loading: false };
-    default:
-      return state;
-  }
-};
-
-
-const ContactProvider = ({ children }) => {
-  const [state, dispatch] = useReducer(contactReducer, {
-    contacts: [],
-    loading: true,
-    error: null
-  });
-
-  const API_BASE = 'https://playground.4geeks.com/contact';
-  const AGENDA_SLUG = 'mi-agenda'; 
-
-  
-  const createAgenda = async () => {
-    try {
-      await fetch(`${API_BASE}/agendas/${AGENDA_SLUG}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-    } catch (error) {
-      console.log('Agenda might already exist');
-    }
-  };
-
-  
-  const fetchContacts = async () => {
-    dispatch({ type: 'SET_LOADING', payload: true });
-    try {
-      await createAgenda(); // Asegurar que la agenda existe
-      const response = await fetch(`${API_BASE}/agendas/${AGENDA_SLUG}/contacts`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        dispatch({ type: 'SET_CONTACTS', payload: data.contacts || [] });
-      } else {
-        throw new Error('Error al cargar contactos');
-      }
-    } catch (error) {
-      dispatch({ type: 'SET_ERROR', payload: error.message });
-    }
-  };
-
- 
-  const createContact = async (contactData) => {
-    try {
-      const response = await fetch(`${API_BASE}/agendas/${AGENDA_SLUG}/contacts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(contactData)
-      });
-
-      if (response.ok) {
-        const newContact = await response.json();
-        dispatch({ type: 'ADD_CONTACT', payload: newContact });
-        return newContact;
-      } else {
-        throw new Error('Error al crear contacto');
-      }
-    } catch (error) {
-      dispatch({ type: 'SET_ERROR', payload: error.message });
-      throw error;
-    }
-  };
-
- 
-  const updateContact = async (id, contactData) => {
-    try {
-      const response = await fetch(`${API_BASE}/agendas/${AGENDA_SLUG}/contacts/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(contactData)
-      });
-
-      if (response.ok) {
-        const updatedContact = await response.json();
-        dispatch({ type: 'UPDATE_CONTACT', payload: updatedContact });
-        return updatedContact;
-      } else {
-        throw new Error('Error al actualizar contacto');
-      }
-    } catch (error) {
-      dispatch({ type: 'SET_ERROR', payload: error.message });
-      throw error;
-    }
-  };
-
- 
-  const deleteContact = async (id) => {
-    try {
-      const response = await fetch(`${API_BASE}/agendas/${AGENDA_SLUG}/contacts/${id}`, {
-        method: 'DELETE'
-      });
-
-      if (response.ok) {
-        dispatch({ type: 'DELETE_CONTACT', payload: id });
-      } else {
-        throw new Error('Error al eliminar contacto');
-      }
-    } catch (error) {
-      dispatch({ type: 'SET_ERROR', payload: error.message });
-      throw error;
-    }
-  };
-
-  return (
-    <ContactContext.Provider
-      value={{
-        ...state,
-        fetchContacts,
-        createContact,
-        updateContact,
-        deleteContact
-      }}
-    >
-      {children}
-    </ContactContext.Provider>
-  );
-};
-
-
-const useContacts = () => {
-  const context = useContext(ContactContext);
-  if (!context) {
-    throw new Error('useContacts debe usarse dentro de ContactProvider');
-  }
-  return context;
-};
-
-
-const Modal = ({ isOpen, onClose, onConfirm, title, message }) => {
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            <X size={24} />
-          </button>
-        </div>
-        <p className="text-gray-600 mb-6">{message}</p>
-        <div className="flex justify-end space-x-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-          >
-            Eliminar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-const ContactCard = ({ contact, onEdit, onDelete }) => {
-  const [showModal, setShowModal] = useState(false);
-
-  const handleDelete = () => {
-    setShowModal(true);
-  };
-
-  const confirmDelete = () => {
-    onDelete(contact.id);
-    setShowModal(false);
-  };
-
-  return (
-    <>
-      <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
-        <div className="flex items-start space-x-4">
-          <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center">
-            <User size={32} className="text-gray-500" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              {contact.name}
-            </h3>
-            <div className="space-y-2">
-              <div className="flex items-center text-gray-600">
-                <Phone size={16} className="mr-2" />
-                <span>{contact.phone}</span>
-              </div>
-              <div className="flex items-center text-gray-600">
-                <Mail size={16} className="mr-2" />
-                <span>{contact.email}</span>
-              </div>
-              <div className="flex items-center text-gray-600">
-                <MapPin size={16} className="mr-2" />
-                <span>{contact.address}</span>
-              </div>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Star Wars Explorer - SWAPI</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .navbar-brand {
+            font-size: 1.5rem;
+        }
+        .card-img-top {
+            height: 300px;
+            object-fit: cover;
+        }
+        .btn-favorite {
+            font-size: 1.2rem;
+        }
+        .detail-image {
+            max-height: 500px;
+            object-fit: cover;
+        }
+        .favorites-dropdown {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .loading-spinner {
+            margin: 50px auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+       
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+            <div class="container">
+                <a class="navbar-brand fw-bold" href="#" onclick="showHome()">
+                    <span class="text-warning">Star Wars</span> Explorer
+                </a>
+                
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="#" onclick="showHome()">Home</a>
+                    <div class="dropdown">
+                        <button class="btn btn-outline-warning ms-2 dropdown-toggle position-relative" 
+                                type="button" data-bs-toggle="dropdown">
+                            Favoritos
+                            <span id="favorites-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none;">
+                                0
+                            </span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end favorites-dropdown" style="min-width: 300px;">
+                            <li><h6 class="dropdown-header">Mis Favoritos</h6></li>
+                            <div id="favorites-list">
+                                <li><span class="dropdown-item-text text-muted">No tienes favoritos guardados</span></li>
+                            </div>
+                        </ul>
+                    </div>
+                </div>
             </div>
-          </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={() => onEdit(contact)}
-              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
-            >
-              <Edit size={20} />
-            </button>
-            <button
-              onClick={handleDelete}
-              className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-            >
-              <Trash2 size={20} />
-            </button>
-          </div>
+        </nav>
+
+        
+        <div class="container py-4">
+            <!-- Vista Home -->
+            <div id="home-view">
+                <div class="text-center mb-4">
+                    <h1 class="display-4 fw-bold">Explora el Universo de <span class="text-warning">Star Wars</span></h1>
+                    <p class="lead">Descubre personajes, vehículos y planetas de una galaxia muy, muy lejana...</p>
+                </div>
+
+                
+                <ul class="nav nav-pills nav-fill mb-4">
+                    <li class="nav-item">
+                        <button class="nav-link active" id="people-tab" onclick="switchTab('people')">
+                            Personajes
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" id="vehicles-tab" onclick="switchTab('vehicles')">
+                            Vehículos
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" id="planets-tab" onclick="switchTab('planets')">
+                            Planetas
+                        </button>
+                    </li>
+                </ul>
+
+                
+                <div id="loading" class="text-center loading-spinner" style="display: none;">
+                    <div class="spinner-border text-warning" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                </div>
+
+                
+                <div id="entities-grid" class="row"></div>
+            </div>
+
+            
+            <div id="detail-view" style="display: none;">
+                <button class="btn btn-outline-secondary mb-4" onclick="showHome()">
+                    ← Volver
+                </button>
+                <div id="detail-content"></div>
+            </div>
         </div>
-      </div>
-
-      <Modal
-        isOpen={showModal}
-        onClose={() => setShowModal(false)}
-        onConfirm={confirmDelete}
-        title="Confirmar eliminación"
-        message={`¿Estás seguro de que quieres eliminar el contacto "${contact.name}"? Esta acción no se puede deshacer.`}
-      />
-    </>
-  );
-};
-
-
-const ContactsView = ({ onAddContact, onEditContact }) => {
-  const { contacts, loading, error, fetchContacts, deleteContact } = useContacts();
-
-  useEffect(() => {
-    fetchContacts();
-  }, []);
-
-  const handleEdit = (contact) => {
-    onEditContact(contact);
-  };
-
-  const handleDelete = async (id) => {
-    try {
-      await deleteContact(id);
-    } catch (error) {
-      console.error('Error al eliminar contacto:', error);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-8">
-        <p className="text-red-600 mb-4">Error: {error}</p>
-        <button
-          onClick={fetchContacts}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          Reintentar
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Mis Contactos</h1>
-        <button
-          onClick={onAddContact}
-          className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-        >
-          <Plus size={20} className="mr-2" />
-          Agregar Contacto
-        </button>
-      </div>
-
-      {contacts.length === 0 ? (
-        <div className="text-center py-12">
-          <User size={64} className="mx-auto text-gray-400 mb-4" />
-          <h3 className="text-xl text-gray-600 mb-2">No hay contactos</h3>
-          <p className="text-gray-500 mb-6">Comienza agregando tu primer contacto</p>
-          <button
-            onClick={onAddContact}
-            className="px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700"
-          >
-            Agregar Primer Contacto
-          </button>
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {contacts.map((contact) => (
-            <ContactCard
-              key={contact.id}
-              contact={contact}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-            />
-          ))}
-        </div>
-      )}
     </div>
-  );
-};
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        
+        var appState = {
+            currentTab: 'people',
+            favorites: [],
+            entities: {},
+            currentView: 'home'
+        };
 
-const AddContactView = ({ contactToEdit, onBack, onSave }) => {
-  const { createContact, updateContact } = useContacts();
-  const [formData, setFormData] = useState({
-    name: '',
-    phone: '',
-    email: '',
-    address: ''
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+        
+        function loadFavorites() {
+            try {
+                var savedFavorites = localStorage.getItem('starwars-favorites');
+                if (savedFavorites) {
+                    appState.favorites = JSON.parse(savedFavorites);
+                }
+            } catch (error) {
+                console.error('Error loading favorites:', error);
+                appState.favorites = [];
+            }
+        }
 
-  useEffect(() => {
-    if (contactToEdit) {
-      setFormData({
-        name: contactToEdit.name || '',
-        phone: contactToEdit.phone || '',
-        email: contactToEdit.email || '',
-        address: contactToEdit.address || ''
-      });
-    }
-  }, [contactToEdit]);
+       
+        function getImageUrl(type, id) {
+            var baseUrl = 'https://starwars-visualguide.com/assets/img';
+            var typeMap = {
+                people: 'characters',
+                vehicles: 'vehicles',
+                planets: 'planets'
+            };
+            return baseUrl + '/' + typeMap[type] + '/' + id + '.jpg';
+        }
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
+        function saveFavorites() {
+            try {
+                localStorage.setItem('starwars-favorites', JSON.stringify(appState.favorites));
+            } catch (error) {
+                console.error('Error saving favorites:', error);
+            }
+            updateFavoritesUI();
+        }
 
-  const handleSubmit = async () => {
-    setLoading(true);
-    setError('');
+        function isFavorite(uid, type) {
+            return appState.favorites.some(function(fav) {
+                return fav.uid === uid && fav.type === type;
+            });
+        }
 
-    // Validación básica
-    if (!formData.name.trim() || !formData.phone.trim() || !formData.email.trim() || !formData.address.trim()) {
-      setError('Todos los campos son obligatorios');
-      setLoading(false);
-      return;
-    }
+        function addFavorite(item) {
+            if (!isFavorite(item.uid, item.type)) {
+                appState.favorites.push(item);
+                saveFavorites();
+            }
+        }
 
-    try {
-      if (contactToEdit) {
-        await updateContact(contactToEdit.id, formData);
-      } else {
-        await createContact(formData);
-      }
-      onSave();
-    } catch (error) {
-      setError(error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+        function removeFavorite(uid, type) {
+            appState.favorites = appState.favorites.filter(function(fav) {
+                return !(fav.uid === uid && fav.type === type);
+            });
+            saveFavorites();
+        }
 
-  return (
-    <div className="max-w-md mx-auto p-6">
-      <div className="flex items-center mb-6">
-        <button
-          onClick={onBack}
-          className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg mr-3"
-        >
-          <ArrowLeft size={24} />
-        </button>
-        <h1 className="text-2xl font-bold text-gray-900">
-          {contactToEdit ? 'Editar Contacto' : 'Agregar Contacto'}
-        </h1>
-      </div>
+        function toggleFavorite(item) {
+            if (isFavorite(item.uid, item.type)) {
+                removeFavorite(item.uid, item.type);
+            } else {
+                addFavorite(item);
+            }
+        }
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
-          {error}
-        </div>
-      )}
+        function updateFavoritesUI() {
+            var badge = document.getElementById('favorites-badge');
+            var favoritesList = document.getElementById('favorites-list');
+            
+            if (appState.favorites.length > 0) {
+                badge.textContent = appState.favorites.length;
+                badge.style.display = 'block';
+                
+                var favoritesHtml = appState.favorites.map(function(fav) {
+                    return '<li>' +
+                        '<div class="dropdown-item d-flex justify-content-between align-items-center">' +
+                            '<div>' +
+                                '<a href="#" onclick="showDetail(\'' + fav.type + '\', \'' + fav.uid + '\')" class="text-decoration-none">' +
+                                    '<strong>' + fav.name + '</strong>' +
+                                '</a>' +
+                                '<br><small class="text-muted">' + fav.type + '</small>' +
+                            '</div>' +
+                            '<button class="btn btn-sm btn-outline-danger" onclick="removeFavorite(\'' + fav.uid + '\', \'' + fav.type + '\')">' +
+                                '×' +
+                            '</button>' +
+                        '</div>' +
+                    '</li>';
+                }).join('');
+                
+                favoritesList.innerHTML = favoritesHtml;
+            } else {
+                badge.style.display = 'none';
+                favoritesList.innerHTML = '<li><span class="dropdown-item-text text-muted">No tienes favoritos guardados</span></li>';
+            }
+        }
 
-      <div className="space-y-4">
-        <div>
-          <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-            Nombre completo *
-          </label>
-          <input
-            type="text"
-            id="name"
-            name="name"
-            value={formData.name}
-            onChange={handleChange}
-            required
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Ej: Juan Pérez"
-          />
-        </div>
+        
+        function fetchEntities(type) {
+            return fetch('https://www.swapi.tech/api/' + type)
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Error fetching data');
+                    return response.json();
+                })
+                .then(function(data) {
+                    appState.entities[type] = data.results;
+                    return data.results;
+                })
+                .catch(function(error) {
+                    console.error('Error:', error);
+                    return [];
+                });
+        }
 
-        <div>
-          <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
-            Teléfono *
-          </label>
-          <input
-            type="tel"
-            id="phone"
-            name="phone"
-            value={formData.phone}
-            onChange={handleChange}
-            required
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Ej: +1 234 567 8900"
-          />
-        </div>
+        function fetchEntityDetail(type, id) {
+            return fetch('https://www.swapi.tech/api/' + type + '/' + id)
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Error fetching data');
+                    return response.json();
+                })
+                .then(function(data) {
+                    return data.result;
+                })
+                .catch(function(error) {
+                    console.error('Error:', error);
+                    return null;
+                });
+        }
 
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-            Email *
-          </label>
-          <input
-            type="email"
-            id="email"
-            name="email"
-            value={formData.email}
-            onChange={handleChange}
-            required
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Ej: juan@ejemplo.com"
-          />
-        </div>
+        
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('entities-grid').innerHTML = '';
+        }
 
-        <div>
-          <label htmlFor="address" className="block text-sm font-medium text-gray-700 mb-1">
-            Dirección *
-          </label>
-          <textarea
-            id="address"
-            name="address"
-            value={formData.address}
-            onChange={handleChange}
-            required
-            rows={3}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Ej: 123 Calle Principal, Ciudad, País"
-          />
-        </div>
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
 
-        <div className="flex space-x-3 pt-4">
-          <button
-            type="button"
-            onClick={onBack}
-            className="flex-1 px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={loading}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Guardando...' : (contactToEdit ? 'Actualizar' : 'Guardar')}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+        function createEntityCard(entity, type) {
+            var imageUrl = getImageUrl(type, entity.uid);
+            var isInFavorites = isFavorite(entity.uid, type);
+            
+            return '<div class="col-lg-4 col-md-6 mb-4">' +
+                '<div class="card h-100 shadow-sm">' +
+                    '<img src="' + imageUrl + '" class="card-img-top" alt="' + entity.name + '"' +
+                         ' onerror="this.src=\'https://via.placeholder.com/300x300/333/fff?text=No+Image\'">' +
+                    '<div class="card-body d-flex flex-column">' +
+                        '<h5 class="card-title">' + entity.name + '</h5>' +
+                        '<div class="mt-auto d-flex justify-content-between">' +
+                            '<button class="btn btn-primary" onclick="showDetail(\'' + type + '\', \'' + entity.uid + '\')">' +
+                                'Ver Detalles' +
+                            '</button>' +
+                            '<button class="btn ' + (isInFavorites ? 'btn-warning' : 'btn-outline-warning') + ' btn-favorite" ' +
+                                    'onclick="toggleFavoriteAndUpdate({uid: \'' + entity.uid + '\', name: \'' + entity.name + '\', type: \'' + type + '\'})">' +
+                                (isInFavorites ? '★' : '☆') +
+                            '</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        }
 
+        function renderEntities(entities, type) {
+            var grid = document.getElementById('entities-grid');
+            var html = entities.map(function(entity) {
+                return createEntityCard(entity, type);
+            }).join('');
+            grid.innerHTML = html;
+        }
 
-const App = () => {
-  const [currentView, setCurrentView] = useState('contacts');
-  const [contactToEdit, setContactToEdit] = useState(null);
+        function switchTab(type) {
+            
+            var tabs = document.querySelectorAll('.nav-link');
+            tabs.forEach(function(tab) {
+                tab.classList.remove('active');
+            });
+            document.getElementById(type + '-tab').classList.add('active');
+            
+            appState.currentTab = type;
+            
+            showLoading();
+            
+            
+            if (!appState.entities[type]) {
+                fetchEntities(type).then(function() {
+                    hideLoading();
+                    renderEntities(appState.entities[type] || [], type);
+                });
+            } else {
+                hideLoading();
+                renderEntities(appState.entities[type] || [], type);
+            }
+        }
 
-  const handleAddContact = () => {
-    setContactToEdit(null);
-    setCurrentView('add');
-  };
+        function showDetail(type, id) {
+            document.getElementById('home-view').style.display = 'none';
+            document.getElementById('detail-view').style.display = 'block';
+            
+            var detailContent = document.getElementById('detail-content');
+            detailContent.innerHTML = '<div class="text-center">' +
+                '<div class="spinner-border text-warning" role="status">' +
+                    '<span class="visually-hidden">Cargando...</span>' +
+                '</div>' +
+            '</div>';
+            
+            fetchEntityDetail(type, id).then(function(entity) {
+                if (entity) {
+                    var properties = entity.properties;
+                    var imageUrl = getImageUrl(type, id);
+                    var isInFavorites = isFavorite(id, type);
+                    
+                    var propertiesHtml = Object.entries(properties)
+                        .filter(function(entry) {
+                            return !['created', 'edited', 'url'].includes(entry[0]);
+                        })
+                        .map(function(entry) {
+                            var key = entry[0];
+                            var value = entry[1];
+                            return '<div class="row mb-2">' +
+                                '<div class="col-4">' +
+                                    '<strong class="text-capitalize">' + key.replace(/_/g, ' ') + ':</strong>' +
+                                '</div>' +
+                                '<div class="col-8">' +
+                                    (Array.isArray(value) ? value.join(', ') : value || 'N/A') +
+                                '</div>' +
+                            '</div>';
+                        }).join('');
+                    
+                    detailContent.innerHTML = '<div class="row">' +
+                        '<div class="col-md-4">' +
+                            '<img src="' + imageUrl + '" class="img-fluid rounded shadow detail-image" alt="' + properties.name + '"' +
+                                 ' onerror="this.src=\'https://via.placeholder.com/400x400/333/fff?text=No+Image\'">' +
+                        '</div>' +
+                        '<div class="col-md-8">' +
+                            '<div class="d-flex justify-content-between align-items-start mb-3">' +
+                                '<h1 class="display-5">' + properties.name + '</h1>' +
+                                '<button class="btn ' + (isInFavorites ? 'btn-warning' : 'btn-outline-warning') + ' btn-favorite" ' +
+                                        'onclick="toggleFavorite({uid: \'' + id + '\', name: \'' + properties.name + '\', type: \'' + type + '\'}); updateDetailFavoriteButton(\'' + id + '\', \'' + type + '\')">' +
+                                    (isInFavorites ? '★' : '☆') +
+                                '</button>' +
+                            '</div>' +
+                            '<div class="card">' +
+                                '<div class="card-header">' +
+                                    '<h5 class="mb-0">Detalles</h5>' +
+                                '</div>' +
+                                '<div class="card-body">' +
+                                    propertiesHtml +
+                                '</div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
+                } else {
+                    detailContent.innerHTML = '<div class="alert alert-danger">Error al cargar los detalles</div>';
+                }
+            });
+        }
 
-  const handleEditContact = (contact) => {
-    setContactToEdit(contact);
-    setCurrentView('add');
-  };
+        function updateDetailFavoriteButton(uid, type) {
+            var button = document.querySelector('.btn-favorite');
+            var isInFavorites = isFavorite(uid, type);
+            
+            if (button) {
+                button.className = 'btn ' + (isInFavorites ? 'btn-warning' : 'btn-outline-warning') + ' btn-favorite';
+                button.innerHTML = isInFavorites ? '★' : '☆';
+            }
+        }
 
-  const handleBack = () => {
-    setContactToEdit(null);
-    setCurrentView('contacts');
-  };
+        function showHome() {
+            document.getElementById('detail-view').style.display = 'none';
+            document.getElementById('home-view').style.display = 'block';
+            appState.currentView = 'home';
+        }
 
-  const handleSave = () => {
-    setContactToEdit(null);
-    setCurrentView('contacts');
-  };
+        function toggleFavoriteAndUpdate(item) {
+            toggleFavorite(item);
+            
+            
+            if (appState.currentView === 'home') {
+                renderEntities(appState.entities[appState.currentTab] || [], appState.currentTab);
+            }
+        }
 
-  return (
-    <ContactProvider>
-      <div className="min-h-screen bg-gray-50">
-        {currentView === 'contacts' ? (
-          <ContactsView
-            onAddContact={handleAddContact}
-            onEditContact={handleEditContact}
-          />
-        ) : (
-          <AddContactView
-            contactToEdit={contactToEdit}
-            onBack={handleBack}
-            onSave={handleSave}
-          />
-        )}
-      </div>
-    </ContactProvider>
-  );
-};
-
-export default App;
+       
+        document.addEventListener('DOMContentLoaded', function() {
+            loadFavorites();
+            updateFavoritesUI();
+            switchTab('people');
+        });
+    </script>
+</body>
+</html>
